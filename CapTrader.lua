@@ -13,19 +13,25 @@ WebBanking {
 local token
 local queryId
 local reference
+local baseCurrencyOriginal
+local baseCurrencyOverride
 
 -- Cache
 local cachedStatement
-local cachedRates = {}
+local cachedFxRates = {} -- currency pair (e.g. EUR/USD) : rate
 
 function SupportsBank(protocol, bankCode)
   return protocol == ProtocolWebBanking and (bankCode == "CapTrader" or bankCode == "IBKR")
 end
 
 function InitializeSession(protocol, bankCode, username, customer, password)
-  queryId = username
+  baseCurrencyOverride = username:match("[a-zA-Z]+")
+  queryId = username:match("[0-9]+")  
   token = password
-  cachedStatement = nil
+
+  if baseCurrencyOverride ~= nil then
+    print("Override base currency: " .. baseCurrencyOverride)
+  end
 
   -- Create HTTPS connection object.
   print("Requesting FlexQuery Reference")
@@ -48,12 +54,14 @@ end
 function ListAccounts(knownAccounts)
   -- Parse account info
   local accountInfo = getStatement():match("<AccountInformation(.-)/>")
+  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
+  print("Account base currency: " .. baseCurrencyOriginal)
 
   local account = {
     name = "CapTrader " .. MM.localizeText("Portfolio"),
     owner = accountInfo:match("name=\"(.-)\""),
     accountNumber = accountInfo:match("accountId=\"(.-)\""),
-    currency = accountInfo:match("currency=\"(.-)\""),
+    currency = baseCurrencyOverride or baseCurrencyOriginal,    
     portfolio = true,
     type = AccountTypePortfolio
   }
@@ -62,6 +70,11 @@ function ListAccounts(knownAccounts)
 end
 
 function RefreshAccount(account, since)
+  -- Parse account info
+  local accountInfo = getStatement():match("<AccountInformation(.-)/>")
+  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
+  print("Account base currency: " .. baseCurrencyOriginal)
+
   local positions = FetchAccountPositions(account)
   local balances = FetchAccountBalances(account)
   return {securities = concat(balances, positions)}
@@ -82,9 +95,11 @@ function FetchAccountPositions(account)
     local costBasisMoney = tonumber(openPosition:match("costBasisMoney=\"(.-)\""))
     local currency = openPosition:match("currency=\"(.-)\"")
     local price = tonumber(openPosition:match("markPrice=\"(.-)\""))
-    local fxRateToBase = tonumber(openPosition:match("fxRateToBase=\"(.-)\""))
+    
+    -- update cache
+    setFxRate(currency, baseCurrencyOriginal, tonumber(openPosition:match("fxRateToBase=\"(.-)\""))) 
+    local fxRateToBase = getFxRateToBase(currency)
     local fxRate = 1 / fxRateToBase
-    cachedRates[currency:lower()] = fxRate
 
     if quantity > 0 then
       mySecurities[#mySecurities+1] = {
@@ -100,7 +115,7 @@ function FetchAccountPositions(account)
         currencyOfPrice = currency, -- Von der Kontowährung abweichende Währung des Preises
         purchasePrice = costBasisMoney / quantity, -- Kaufpreis oder Kaufkurs
         currencyOfPurchasePrice = currency, -- Von der Kontowährung abweichende Währung des Kaufpreises
-        -- exchangeRate = fxRate -- Wechselkurs zum Kaufzeitpunkt
+        exchangeRate = fxRate -- Wechselkurs zum Kaufzeitpunkt
       }
     end
   end
@@ -124,28 +139,25 @@ function FetchAccountBalances(account)
       myBalances[#myBalances+1] = { 
         name = MM.localizeText("Settled Cash") .. " (" .. account.currency .. ")",
         currency = account.currency,
-        quantity = cash
+        quantity = cash * getFxRateToBase(baseCurrencyOriginal)
       }    
     else
       if currency == account.currency then
         myBalances[#myBalances+1] = { 
           name = currency,
-          currency = account.currency,
-          amount = cash
+          currency = currency,
+          amount = cash * getFxRateToBase(currency)
         }
       else
         -- other cash positions, not in base currency
         hasForexPositions = true
-        local fxRate = getFxRate(account.currency, currency)
-        print(account.currency .. "/" .. currency ..  " = " .. fxRate)
-        local fxRateToBase = 1 / fxRate
   
         myBalances[#myBalances+1] = { 
           name = currency,
           market =  MM.localizeText("Forex"),
           quantity = cash, 
           currency = currency,
-          amount = cash * fxRateToBase
+          amount = cash * getFxRateToBase(currency)
         }
       end
     end
@@ -184,26 +196,37 @@ function concat(t1,t2)
   return t1
 end
 
-function fetchFxRates(base)
+function fetchFxRate(base, quote)
   print("Fetching FX rates: " .. base)
   local url = "https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/" .. base:lower() .. ".json"
   local headers = { Accept = "application/json" }
   local content = Connection():request("GET", url, nil, nil, headers)
   local json = JSON(content):dictionary()
-  return json[base:lower()]
+  local rates = json[base:lower()]
+  return rates[quote:lower()]
 end
 
-function getFxRate(base, currency)
-  if base:lower() == currency:lower() then
+function getFxRate(base, quote)
+  if base:lower() == quote:lower() then
     return 1
   end
 
-  if cachedRates[currency:lower()] ~= nil then
-    return cachedRates[currency:lower()]
+  local pair = base:upper() .. "/" .. quote:upper()
+
+  if cachedFxRates[pair] ~= nil then
+    return cachedFxRates[pair]
   end
 
-  local rates = fetchFxRates(base)
-  local rate = rates[currency:lower()]
-  cachedRates[currency:lower()] = rate 
+  local rate = fetchFxRate(base, quote)
+  setFxRate(base, quote, rate)
   return rate
+end
+
+function getFxRateToBase(currency)
+  return 1 / getFxRate(baseCurrencyOverride or baseCurrencyOriginal, currency)
+end
+
+function setFxRate(base, quote, rate)
+  cachedFxRates[base:upper() .. "/" .. quote:upper()] = rate
+  cachedFxRates[quote:upper() .. "/" .. base:upper()] = 1 / rate
 end
