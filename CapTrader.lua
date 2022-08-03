@@ -33,7 +33,6 @@ function InitializeSession(protocol, bankCode, username, customer, password)
     print("Override base currency: " .. baseCurrencyOverride)
   end
 
-  -- Create HTTPS connection object.
   print("Requesting FlexQuery Reference")
   local url = "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q= " .. queryId .. "&v=3"
   local headers = { Accept = "application/xml" }
@@ -84,7 +83,7 @@ function FetchAccountPositions(account)
   local openPositions = getStatement():match("<OpenPositions(.-)</OpenPositions>")
   local mySecurities = {}
 
-  -- parse open positions
+  -- Parse open positions
   for openPosition in openPositions:gmatch("<OpenPosition.-/>") do
     print("parsing open position: " .. openPosition)
 
@@ -126,7 +125,7 @@ function FetchAccountBalances(account)
   local myBalances = {}
   local hasForexPositions = false
 
-  -- parse cash reports
+  -- Parse cash reports
   for cashReport in cashReports:gmatch("<CashReportCurrency.-/>") do
     print("parsing cash report: " .. cashReport)
 
@@ -138,6 +137,7 @@ function FetchAccountBalances(account)
         name = MM.localizeText("Settled Cash") .. " (" .. baseCurrencyOriginal .. ")",
         currency = baseCurrencyOriginal,
         quantity = cash,
+        amount = convertToBase(cash, baseCurrencyOriginal),
         exchangeRate = getFxRateToBase(baseCurrencyOriginal)
       }    
     else
@@ -148,7 +148,7 @@ function FetchAccountBalances(account)
           amount = convertToBase(cash, currency)
         }
       else
-        -- other cash positions, not in base currency
+        -- Other cash positions (not in base currency) do exist
         hasForexPositions = true
   
         myBalances[#myBalances+1] = { 
@@ -163,10 +163,9 @@ function FetchAccountBalances(account)
     end
   end
 
-  -- If no other currencies are present, add the amout to the base currency
-  if hasForexPositions == false then
-    myBalances[1].amount = convertToBase(myBalances[1].quantity, baseCurrencyOriginal)
-    --myBalances[1].quantity = nil
+  -- If other currencies are present, remove the amout for the base currency
+  if hasForexPositions == true then
+    myBalances[1].amount = nil
   end
 
   return myBalances
