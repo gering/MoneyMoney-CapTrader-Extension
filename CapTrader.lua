@@ -97,9 +97,7 @@ function FetchAccountPositions(account)
     local price = tonumber(openPosition:match("markPrice=\"(.-)\""))
     
     -- update cache
-    setFxRate(currency, baseCurrencyOriginal, tonumber(openPosition:match("fxRateToBase=\"(.-)\""))) 
-    local fxRateToBase = getFxRateToBase(currency)
-    local fxRate = 1 / fxRateToBase
+    setFxRate(baseCurrencyOriginal, currency, 1/tonumber(openPosition:match("fxRateToBase=\"(.-)\""))) 
 
     if quantity > 0 then
       mySecurities[#mySecurities+1] = {
@@ -108,14 +106,14 @@ function FetchAccountPositions(account)
         market = exchange, -- Börse
         quantity = quantity, -- Nominalbetrag oder Stückzahl
         currency = nil, -- Währung bei Nominalbetrag oder nil bei Stückzahl
-        amount = price * quantity * fxRateToBase, -- Wert der Depotposition in Kontowährung
+        amount = convertToBase(price * quantity, currency), -- Wert der Depotposition in Kontowährung
         originalCurrencyAmount = price * quantity, -- Wert der Depotposition in Originalwährung
         currencyOfOriginalAmount = currency, -- Originalwährung
         price = price, -- Aktueller Preis oder Kurs
         currencyOfPrice = currency, -- Von der Kontowährung abweichende Währung des Preises
         purchasePrice = costBasisMoney / quantity, -- Kaufpreis oder Kaufkurs
         currencyOfPurchasePrice = currency, -- Von der Kontowährung abweichende Währung des Kaufpreises
-        exchangeRate = fxRate -- Wechselkurs zum Kaufzeitpunkt
+        exchangeRate = getFxRateToBase(currency) -- Wechselkurs zum Kaufzeitpunkt
       }
     end
   end
@@ -137,16 +135,17 @@ function FetchAccountBalances(account)
 
     if currency == "BASE_SUMMARY" then
       myBalances[#myBalances+1] = { 
-        name = MM.localizeText("Settled Cash") .. " (" .. account.currency .. ")",
-        currency = account.currency,
-        quantity = cash * getFxRateToBase(baseCurrencyOriginal)
+        name = MM.localizeText("Settled Cash") .. " (" .. baseCurrencyOriginal .. ")",
+        currency = baseCurrencyOriginal,
+        quantity = cash,
+        exchangeRate = getFxRateToBase(baseCurrencyOriginal)
       }    
     else
       if currency == account.currency then
         myBalances[#myBalances+1] = { 
           name = currency,
           currency = currency,
-          amount = cash * getFxRateToBase(currency)
+          amount = convertToBase(cash, currency)
         }
       else
         -- other cash positions, not in base currency
@@ -157,7 +156,8 @@ function FetchAccountBalances(account)
           market =  MM.localizeText("Forex"),
           quantity = cash, 
           currency = currency,
-          amount = cash * getFxRateToBase(currency)
+          amount = convertToBase(cash, currency),
+          exchangeRate = getFxRateToBase(currency)
         }
       end
     end
@@ -165,8 +165,8 @@ function FetchAccountBalances(account)
 
   -- If no other currencies are present, add the amout to the base currency
   if hasForexPositions == false then
-    myBalances[1].amount = myBalances[1].quantity
-    myBalances[1].quantity = nil
+    myBalances[1].amount = convertToBase(myBalances[1].quantity, baseCurrencyOriginal)
+    --myBalances[1].quantity = nil
   end
 
   return myBalances
@@ -181,6 +181,7 @@ end
 function getStatement()
   if cachedStatement == nil then
     print("Fetching FlexQuery Statement")
+    MM.sleep(1)
     local url = "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q= " .. reference .. "&v=3"
     local headers = { Accept = "application/xml" }
     cachedStatement = Connection():request("GET", url, nil, nil, headers)
@@ -197,13 +198,14 @@ function concat(t1,t2)
 end
 
 function fetchFxRate(base, quote)
-  print("Fetching FX rates: " .. base)
   local url = "https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/" .. base:lower() .. ".json"
   local headers = { Accept = "application/json" }
   local content = Connection():request("GET", url, nil, nil, headers)
   local json = JSON(content):dictionary()
   local rates = json[base:lower()]
-  return rates[quote:lower()]
+  local rate = rates[quote:lower()]
+  print("Fetched: " .. base .. "/" .. quote .. ": " .. rate)
+  return rate
 end
 
 function getFxRate(base, quote)
@@ -211,22 +213,44 @@ function getFxRate(base, quote)
     return 1
   end
 
+  -- used cached rate
   local pair = base:upper() .. "/" .. quote:upper()
-
   if cachedFxRates[pair] ~= nil then
     return cachedFxRates[pair]
   end
 
+  -- used cached rate of reversed pair
+  local reversedPair = quote:upper() .. "/" .. base:upper()
+  if cachedFxRates[reversedPair] ~= nil then
+    return 1/cachedFxRates[reversedPair]
+  end
+
+  -- fetch rate
   local rate = fetchFxRate(base, quote)
   setFxRate(base, quote, rate)
   return rate
 end
 
 function getFxRateToBase(currency)
-  return 1 / getFxRate(baseCurrencyOverride or baseCurrencyOriginal, currency)
+  return getFxRate(baseCurrencyOverride or baseCurrencyOriginal, currency)
+end
+
+function convertToBase(amount, currency)
+  if currency == (baseCurrencyOverride or baseCurrencyOriginal) then
+    return amount
+  else
+    local base = amount / getFxRateToBase(currency)
+    print("Convert: " .. amount .. " " .. currency .. " = " .. base .. " " .. (baseCurrencyOverride or baseCurrencyOriginal))
+    return base
+  end
 end
 
 function setFxRate(base, quote, rate)
-  cachedFxRates[base:upper() .. "/" .. quote:upper()] = rate
-  cachedFxRates[quote:upper() .. "/" .. base:upper()] = 1 / rate
+  if base ~= quote then
+    local pair = base:upper() .. "/" .. quote:upper()
+    if cachedFxRates[pair] == nil then
+      print("Set FxRate: " .. pair .. " = " .. rate)
+      cachedFxRates[pair] = rate
+    end
+  end
 end
