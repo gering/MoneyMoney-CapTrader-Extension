@@ -47,35 +47,13 @@ function InitializeSession(protocol, bankCode, username, customer, password)
 end
 
 function ListAccounts(knownAccounts)
-  -- Parse account info
-  local accountInfo = getStatement():match("<AccountInformation(.-)/>")
-  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
-  print("Account base currency: " .. baseCurrencyOriginal)
-
-  local account = {
-    name = "CapTrader " .. MM.localizeText("Portfolio"),
-    owner = accountInfo:match("name=\"(.-)\""),
-    accountNumber = accountInfo:match("accountId=\"(.-)\""),
-    currency = baseCurrencyOverride or baseCurrencyOriginal,    
-    portfolio = true,
-    type = AccountTypePortfolio
-  }
-
+  local account = parseAccountInfo()
   return {account}
 end
 
 function RefreshAccount(account, since)
-  -- Parse account info
-  local accountInfo = getStatement():match("<AccountInformation(.-)/>")
-  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
-  print("Account base currency: " .. baseCurrencyOriginal)
-
-  if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
-    print("Override base currency: " .. baseCurrencyOverride)
-  end
-
-  -- Parse rates if available
-  parseConversionRates()
+  parseAccountInfo()
+  parseConversionRates() -- Parse rates if available
 
   local positions = parseAccountPositions(account)
   local balances = parseAccountBalances(account)
@@ -172,6 +150,29 @@ function parseAccountBalances(account)
   end
 
   return myBalances
+end
+
+function parseAccountInfo()
+  local accountInfo = getStatement():match("<AccountInformation(.-)/>")
+  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
+  local name = accountInfo:match("name=\"(.-)\"")
+  local accountId = accountInfo:match("accountId=\"(.-)\"")
+  
+  print("Account base currency: " .. baseCurrencyOriginal)
+  if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
+    print("Override base currency: " .. baseCurrencyOverride)
+  end
+
+  local account = {
+    name = "CapTrader " .. MM.localizeText("Portfolio"),
+    owner = name,
+    accountNumber = accountId,
+    currency = baseCurrencyOverride or baseCurrencyOriginal,    
+    portfolio = true,
+    type = AccountTypePortfolio
+  }
+
+  return account
 end
 
 function parseConversionRates()
