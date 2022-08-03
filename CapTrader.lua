@@ -29,10 +29,6 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   queryId = username:match("[0-9]+")  
   token = password
 
-  if baseCurrencyOverride ~= nil then
-    print("Override base currency: " .. baseCurrencyOverride)
-  end
-
   print("Requesting FlexQuery Reference")
   local url = "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q= " .. queryId .. "&v=3"
   local headers = { Accept = "application/xml" }
@@ -74,18 +70,25 @@ function RefreshAccount(account, since)
   baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
   print("Account base currency: " .. baseCurrencyOriginal)
 
-  local positions = FetchAccountPositions(account)
-  local balances = FetchAccountBalances(account)
+  if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
+    print("Override base currency: " .. baseCurrencyOverride)
+  end
+
+  -- Parse rates if available
+  parseConversionRates()
+
+  local positions = parseAccountPositions(account)
+  local balances = parseAccountBalances(account)
   return {securities = concat(balances, positions)}
 end
 
-function FetchAccountPositions(account)
+function parseAccountPositions(account)
   local openPositions = getStatement():match("<OpenPositions(.-)</OpenPositions>")
   local mySecurities = {}
 
   -- Parse open positions
   for openPosition in openPositions:gmatch("<OpenPosition.-/>") do
-    print("parsing open position: " .. openPosition)
+    print("Parsing open position: " .. openPosition)
 
     local symbol = openPosition:match("symbol=\"(.-)\"")
     local isin = openPosition:match("isin=\"(.-)\"")
@@ -120,14 +123,14 @@ function FetchAccountPositions(account)
   return mySecurities
 end
 
-function FetchAccountBalances(account)
+function parseAccountBalances(account)
   local cashReports = getStatement():match("<CashReport(.-)</CashReport>")
   local myBalances = {}
   local hasForexPositions = false
 
   -- Parse cash reports
   for cashReport in cashReports:gmatch("<CashReportCurrency.-/>") do
-    print("parsing cash report: " .. cashReport)
+    print("Parsing cash report: " .. cashReport)
 
     local cash = tonumber(cashReport:match("endingSettledCash=\"(.-)\""))
     local currency = cashReport:match("currency=\"(.-)\"")
@@ -171,11 +174,37 @@ function FetchAccountBalances(account)
   return myBalances
 end
 
+function parseConversionRates()
+  local rates = getStatement():match("<ConversionRates(.-)</ConversionRates>")
+  if rates == nil then
+    print("No conversion rates provided")
+  else
+    for rate in rates:gmatch("<ConversionRate.-/>") do
+      local from = rate:match("fromCurrency=\"(.-)\"")
+      local to = rate:match("toCurrency=\"(.-)\"")
+      local rate = tonumber(rate:match("rate=\"(.-)\""))
+  
+      if from == baseCurrencyOriginal then
+        setFxRate(from, to, rate)
+      end
+      if to == baseCurrencyOriginal then
+        setFxRate(to, from, 1/rate)
+      end
+    end
+  end
+end
+
 function EndSession()
-  -- nothing to do
 end
 
 -- Helper
+
+function concat(t1,t2)
+  for i=1,#t2 do
+      t1[#t1+1] = t2[i]
+  end
+  return t1
+end
 
 function getStatement()
   if cachedStatement == nil then
@@ -187,13 +216,6 @@ function getStatement()
   end
 
   return cachedStatement
-end
-
-function concat(t1,t2)
-  for i=1,#t2 do
-      t1[#t1+1] = t2[i]
-  end
-  return t1
 end
 
 function fetchFxRate(base, quote)
@@ -212,19 +234,19 @@ function getFxRate(base, quote)
     return 1
   end
 
-  -- used cached rate
+  -- Use cached rate
   local pair = base:upper() .. "/" .. quote:upper()
   if cachedFxRates[pair] ~= nil then
     return cachedFxRates[pair]
   end
 
-  -- used cached rate of reversed pair
+  -- Use cached rate of reversed pair
   local reversedPair = quote:upper() .. "/" .. base:upper()
   if cachedFxRates[reversedPair] ~= nil then
     return 1/cachedFxRates[reversedPair]
   end
 
-  -- fetch rate
+  -- Fetch rate
   local rate = fetchFxRate(base, quote)
   setFxRate(base, quote, rate)
   return rate
@@ -248,7 +270,7 @@ function setFxRate(base, quote, rate)
   if base ~= quote then
     local pair = base:upper() .. "/" .. quote:upper()
     if cachedFxRates[pair] == nil then
-      print("Set FxRate: " .. pair .. " = " .. rate)
+      print(pair .. " = " .. rate)
       cachedFxRates[pair] = rate
     end
   end
