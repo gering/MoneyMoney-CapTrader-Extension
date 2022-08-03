@@ -20,6 +20,22 @@ local baseCurrencyOverride
 local cachedStatement
 local cachedFxRates = {} -- currency pair (e.g. EUR/USD) : rate
 
+-- Extensions
+
+string.parseTag = function(s, tag)
+  return s:match("^.+<" .. tag .. ">(.+)</" .. tag .. ">.+$")
+end
+
+string.parseArgs = function(s)
+  local args = {}
+  s:gsub("([%-%w]+)=([\"'])(.-)%2", function(w, _, a)
+      args[w] = a
+  end)
+  return args
+end
+
+-- Plugin
+
 function SupportsBank(protocol, bankCode)
   return protocol == ProtocolWebBanking and (bankCode == "CapTrader" or bankCode == "IBKR")
 end
@@ -35,10 +51,10 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   local content = Connection():request("GET", url, nil, nil, headers)
 
   -- Extract status and reference code
-  local status = content:match("Status>(.-)<")
+  local status = content:parseTag("Status")
   print("Status: " .. status)
 
-  reference = content:match("ReferenceCode>(.-)<")
+  reference = content:parseTag("ReferenceCode")
   print("Reference: " .. reference)
 
   if status ~= "Success" then
@@ -68,32 +84,25 @@ function parseAccountPositions(account)
   for openPosition in openPositions:gmatch("<OpenPosition.-/>") do
     print("Parsing open position: " .. openPosition)
 
-    local symbol = openPosition:match("symbol=\"(.-)\"")
-    local isin = openPosition:match("isin=\"(.-)\"")
-    local exchange = openPosition:match("listingExchange=\"(.-)\"")
-    local quantity = tonumber(openPosition:match("position=\"(.-)\""))
-    local costBasisMoney = tonumber(openPosition:match("costBasisMoney=\"(.-)\""))
-    local currency = openPosition:match("currency=\"(.-)\"")
-    local price = tonumber(openPosition:match("markPrice=\"(.-)\""))
+    local args = openPosition:parseArgs()
+    local quantity = args.position * args.multiplier
     
-    -- update cache
-    setFxRate(baseCurrencyOriginal, currency, 1/tonumber(openPosition:match("fxRateToBase=\"(.-)\""))) 
+    -- Update cache
+    setFxRate(baseCurrencyOriginal, args.currency, 1/args.fxRateToBase) 
 
     if quantity > 0 then
       mySecurities[#mySecurities+1] = {
-        name = symbol, -- Bezeichnung des Wertpapiers
-        isin = isin, -- ISIN
-        market = exchange, -- Börse
-        quantity = quantity, -- Nominalbetrag oder Stückzahl
-        currency = nil, -- Währung bei Nominalbetrag oder nil bei Stückzahl
-        amount = convertToBase(price * quantity, currency), -- Wert der Depotposition in Kontowährung
-        originalCurrencyAmount = price * quantity, -- Wert der Depotposition in Originalwährung
-        currencyOfOriginalAmount = currency, -- Originalwährung
-        price = price, -- Aktueller Preis oder Kurs
-        currencyOfPrice = currency, -- Von der Kontowährung abweichende Währung des Preises
-        purchasePrice = costBasisMoney / quantity, -- Kaufpreis oder Kaufkurs
-        currencyOfPurchasePrice = currency, -- Von der Kontowährung abweichende Währung des Kaufpreises
-        exchangeRate = getFxRateToBase(currency) -- Wechselkurs zum Kaufzeitpunkt
+        name = args.symbol,
+        isin = args.isin,
+        market = args.listingExchange,
+        quantity = quantity,
+        originalCurrencyAmount = args.markPrice * quantity,
+        currencyOfOriginalAmount = args.currency,
+        price = args.markPrice,
+        currencyOfPrice = args.currency,
+        purchasePrice = args.costBasisMoney / args.position,
+        currencyOfPurchasePrice = args.currency,
+        exchangeRate = getFxRateToBase(args.currency)
       }
     end
   end
@@ -110,8 +119,9 @@ function parseAccountBalances(account)
   for cashReport in cashReports:gmatch("<CashReportCurrency.-/>") do
     print("Parsing cash report: " .. cashReport)
 
-    local cash = tonumber(cashReport:match("endingSettledCash=\"(.-)\""))
-    local currency = cashReport:match("currency=\"(.-)\"")
+    local args = cashReport:parseArgs()
+    local cash = args.endingSettledCash
+    local currency = args.currency
 
     if currency == "BASE_SUMMARY" then
       myBalances[#myBalances+1] = { 
@@ -154,10 +164,9 @@ end
 
 function parseAccountInfo()
   local accountInfo = getStatement():match("<AccountInformation(.-)/>")
-  baseCurrencyOriginal = accountInfo:match("currency=\"(.-)\"")
-  local name = accountInfo:match("name=\"(.-)\"")
-  local accountId = accountInfo:match("accountId=\"(.-)\"")
-  
+  local args = accountInfo:parseArgs()
+
+  baseCurrencyOriginal = args.currency
   print("Account base currency: " .. baseCurrencyOriginal)
   if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
     print("Override base currency: " .. baseCurrencyOverride)
@@ -165,8 +174,8 @@ function parseAccountInfo()
 
   local account = {
     name = "CapTrader " .. MM.localizeText("Portfolio"),
-    owner = name,
-    accountNumber = accountId,
+    owner = args.name,
+    accountNumber = args.accountId,
     currency = baseCurrencyOverride or baseCurrencyOriginal,    
     portfolio = true,
     type = AccountTypePortfolio
@@ -181,15 +190,13 @@ function parseConversionRates()
     print("No conversion rates provided")
   else
     for rate in rates:gmatch("<ConversionRate.-/>") do
-      local from = rate:match("fromCurrency=\"(.-)\"")
-      local to = rate:match("toCurrency=\"(.-)\"")
-      local rate = tonumber(rate:match("rate=\"(.-)\""))
+      local args = rate:parseArgs()
   
-      if from == baseCurrencyOriginal then
-        setFxRate(from, to, rate)
+      if args.fromCurrency == baseCurrencyOriginal then
+        setFxRate(args.fromCurrency, args.toCurrency, args.rate)
       end
-      if to == baseCurrencyOriginal then
-        setFxRate(to, from, 1/rate)
+      if args.toCurrency == baseCurrencyOriginal then
+        setFxRate(args.toCurrency, args.fromCurrency, 1/args.rate)
       end
     end
   end
