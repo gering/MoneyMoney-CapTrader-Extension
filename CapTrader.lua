@@ -14,7 +14,7 @@ local token
 local queryId
 local reference
 local baseCurrencyOriginal
-local baseCurrencyOverride
+local baseCurrencyOverride -- default is EUR
 
 -- Cache
 local cachedStatement
@@ -41,7 +41,7 @@ function SupportsBank(protocol, bankCode)
 end
 
 function InitializeSession(protocol, bankCode, username, customer, password)
-  baseCurrencyOverride = username:match("[a-zA-Z]+")
+  baseCurrencyOverride = username:match("[a-zA-Z]+") or "EUR"
   queryId = username:match("[0-9]+")  
   token = password
 
@@ -68,7 +68,7 @@ function ListAccounts(knownAccounts)
 end
 
 function RefreshAccount(account, since)
-  parseAccountInfo()
+  parseAccountInfo() -- Load baseCurrencyOriginal
   parseConversionRates() -- Parse rates if available
 
   local positions = parseAccountPositions(account)
