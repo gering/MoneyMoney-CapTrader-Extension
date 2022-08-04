@@ -27,11 +27,7 @@ string.parseTagContent = function(s, tag)
 end
 
 string.parseTag = function(s, tag)
-  local tag = s:match("<" .. tag .. ".-/>")
-  if tag == nil then
-    print("Tag " .. tag .. " not found in " .. s)
-  end
-  return tag
+  return s:match("<" .. tag .. ".-/>")
 end
 
 string.parseTags = function(s, tag)
@@ -58,9 +54,7 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   token = password
 
   print("Requesting FlexQuery Reference")
-  local url = "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q= " .. queryId .. "&v=3"
-  local headers = { Accept = "application/xml" }
-  local content = Connection():request("GET", url, nil, nil, headers)
+  local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q= " .. queryId .. "&v=3")
 
   -- Extract status and reference code
   local status = content:parseTagContent("Status")
@@ -86,6 +80,42 @@ function RefreshAccount(account, since)
   local positions = parseAccountPositions(account)
   local balances = parseAccountBalances(account)
   return {securities = concat(balances, positions)}
+end
+
+function EndSession()
+end
+
+-- Parsing FlexQuery
+
+function getStatement()
+  if cachedStatement == nil then
+    print("Fetching FlexQuery Statement")
+    MM.sleep(1) -- Sometimes the statement is not available immediately
+    cachedStatement = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q= " .. reference .. "&v=3")
+  end
+
+  return cachedStatement
+end
+
+function parseAccountInfo()
+  local accountInfo = getStatement():parseTag("AccountInformation"):parseArgs()
+  baseCurrencyOriginal = accountInfo.currency
+
+  print("Account base currency: " .. baseCurrencyOriginal)
+  if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
+    print("Override base currency: " .. baseCurrencyOverride)
+  end
+
+  local account = {
+    name = "CapTrader " .. MM.localizeText("Portfolio"),
+    owner = accountInfo.name,
+    accountNumber = accountInfo.accountId,
+    currency = baseCurrencyOverride or baseCurrencyOriginal,    
+    portfolio = true,
+    type = AccountTypePortfolio
+  }
+
+  return account
 end
 
 function parseAccountPositions(account)
@@ -174,27 +204,6 @@ function parseAccountBalances(account)
   return myBalances
 end
 
-function parseAccountInfo()
-  local accountInfo = getStatement():parseTag("AccountInformation"):parseArgs()
-  baseCurrencyOriginal = accountInfo.currency
-
-  print("Account base currency: " .. baseCurrencyOriginal)
-  if baseCurrencyOverride ~= nil and baseCurrencyOverride ~= baseCurrencyOriginal then
-    print("Override base currency: " .. baseCurrencyOverride)
-  end
-
-  local account = {
-    name = "CapTrader " .. MM.localizeText("Portfolio"),
-    owner = accountInfo.name,
-    accountNumber = accountInfo.accountId,
-    currency = baseCurrencyOverride or baseCurrencyOriginal,    
-    portfolio = true,
-    type = AccountTypePortfolio
-  }
-
-  return account
-end
-
 function parseConversionRates()
   local rates = getStatement():parseTagContent("ConversionRates")
   if rates == nil then
@@ -213,9 +222,6 @@ function parseConversionRates()
   end
 end
 
-function EndSession()
-end
-
 -- Helper
 
 function concat(t1,t2)
@@ -223,18 +229,6 @@ function concat(t1,t2)
       t1[#t1+1] = t2[i]
   end
   return t1
-end
-
-function getStatement()
-  if cachedStatement == nil then
-    print("Fetching FlexQuery Statement")
-    MM.sleep(1)
-    local url = "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q= " .. reference .. "&v=3"
-    local headers = { Accept = "application/xml" }
-    cachedStatement = Connection():request("GET", url, nil, nil, headers)
-  end
-
-  return cachedStatement
 end
 
 function fetchFxRate(base, quote)
@@ -245,6 +239,7 @@ function fetchFxRate(base, quote)
   local rates = json[base:lower()]
   local rate = rates[quote:lower()]
   print("Fetched: " .. base .. "/" .. quote .. ": " .. rate)
+  setFxRate(base, quote, rate)
   return rate
 end
 
@@ -265,10 +260,8 @@ function getFxRate(base, quote)
     return 1/cachedFxRates[reversedPair]
   end
 
-  -- Fetch rate
-  local rate = fetchFxRate(base, quote)
-  setFxRate(base, quote, rate)
-  return rate
+  -- Fetch rate as fallback
+  return fetchFxRate(base, quote)
 end
 
 function getFxRateToBase(currency)
