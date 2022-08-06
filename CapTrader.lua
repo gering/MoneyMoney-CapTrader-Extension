@@ -198,7 +198,7 @@ function parseAccountBalances(account)
 
   -- If other currencies are present, remove the amout for the base currency
   if hasForexPositions == true then
-    myBalances[1].amount = nil
+    myBalances[1].amount = 0
   end
 
   return myBalances
