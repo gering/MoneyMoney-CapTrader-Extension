@@ -232,15 +232,23 @@ function concat(t1,t2)
 end
 
 function fetchFxRate(base, quote)
-  local url = "https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/currencies/" .. base:lower() .. ".json"
-  local headers = { Accept = "application/json" }
-  local content = Connection():request("GET", url, nil, nil, headers)
-  local json = JSON(content):dictionary()
-  local rates = json[base:lower()]
-  local rate = rates[quote:lower()]
-  print("Fetched: " .. base .. "/" .. quote .. ": " .. rate)
-  setFxRate(base, quote, rate)
-  return rate
+  if quote == "EUR" then
+    return 1 / fetchFxRate(quote, base)
+  end
+
+  if base == "EUR" then
+    local content = Connection():request("GET", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")  
+    for cube in content:parseTags("Cube") do
+      local conversion = cube:parseArgs()
+      if conversion.currency == quote then
+        print("Fetched: " .. base .. "/" .. quote .. " @ " .. conversion.rate)
+        return conversion.rate
+      end
+    end
+  end
+
+  print("Couldn't fetch FX rate for " .. base .. "/" .. quote)
+  return nil
 end
 
 function getFxRate(base, quote)
@@ -261,7 +269,9 @@ function getFxRate(base, quote)
   end
 
   -- Fetch rate as fallback
-  return fetchFxRate(base, quote)
+  local rate = fetchFxRate(base, quote)
+  setFxRate(base, quote, rate)
+  return rate
 end
 
 function getFxRateToBase(currency)
