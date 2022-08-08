@@ -50,7 +50,7 @@ end
 
 function InitializeSession(protocol, bankCode, username, customer, password)
   baseCurrencyOverride = username:match("[a-zA-Z]+") or "EUR"
-  queryId = username:match("[0-9]+")  
+  queryId = username:match("[0-9]+")
   token = password
 
   print("Requesting FlexQuery Reference")
@@ -65,7 +65,7 @@ function InitializeSession(protocol, bankCode, username, customer, password)
 
   if status ~= "Success" then
     return LoginFailed
-  end 
+  end
 end
 
 function ListAccounts(knownAccounts)
@@ -110,7 +110,7 @@ function parseAccountInfo()
     name = "CapTrader " .. MM.localizeText("Portfolio"),
     owner = accountInfo.name,
     accountNumber = accountInfo.accountId,
-    currency = baseCurrencyOverride or baseCurrencyOriginal,    
+    currency = baseCurrencyOverride or baseCurrencyOriginal,
     portfolio = true,
     type = AccountTypePortfolio
   }
@@ -128,9 +128,9 @@ function parseAccountPositions(account)
 
     local pos = openPosition:parseArgs()
     local quantity = pos.position * pos.multiplier
-    
+
     -- Update cache
-    setFxRate(baseCurrencyOriginal, pos.currency, 1/pos.fxRateToBase) 
+    setFxRate(baseCurrencyOriginal, pos.currency, 1/pos.fxRateToBase)
 
     if quantity > 0 then
       mySecurities[#mySecurities+1] = {
@@ -166,16 +166,16 @@ function parseAccountBalances(account)
     local currency = report.currency
 
     if currency == "BASE_SUMMARY" then
-      myBalances[#myBalances+1] = { 
+      myBalances[#myBalances+1] = {
         name = MM.localizeText("Settled Cash") .. " (" .. baseCurrencyOriginal .. ")",
         currency = baseCurrencyOriginal,
         quantity = cash,
         amount = convertToBase(cash, baseCurrencyOriginal),
         exchangeRate = getFxRateToBase(baseCurrencyOriginal)
-      }    
+      }
     else
       if currency == account.currency then
-        myBalances[#myBalances+1] = { 
+        myBalances[#myBalances+1] = {
           name = currency,
           currency = currency,
           amount = convertToBase(cash, currency)
@@ -183,11 +183,11 @@ function parseAccountBalances(account)
       else
         -- Other cash positions (not in base currency) do exist
         hasForexPositions = true
-  
-        myBalances[#myBalances+1] = { 
+
+        myBalances[#myBalances+1] = {
           name = currency,
           market =  MM.localizeText("Forex"),
-          quantity = cash, 
+          quantity = cash,
           currency = currency,
           amount = convertToBase(cash, currency),
           exchangeRate = getFxRateToBase(currency)
@@ -211,7 +211,7 @@ function parseConversionRates()
   else
     for conversionRate in rates:parseTags("ConversionRate") do
       local conversion = conversionRate:parseArgs()
-  
+
       if conversion.fromCurrency == baseCurrencyOriginal then
         setFxRate(conversion.fromCurrency, conversion.toCurrency, conversion.rate)
       end
@@ -237,7 +237,7 @@ function fetchFxRate(base, quote)
   end
 
   if base == "EUR" then
-    local content = Connection():request("GET", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")  
+    local content = Connection():request("GET", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")
     for cube in content:parseTags("Cube") do
       local conversion = cube:parseArgs()
       if conversion.currency == quote then
@@ -297,3 +297,5 @@ function setFxRate(base, quote, rate)
     end
   end
 end
+
+-- SIGNATURE: MC0CFQCfFFviJ1OMLL9NSJ0rx4bKyy3BbAIUbWgR6nMhcrFiTDI6Yod+B/B9SSg=
