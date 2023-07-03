@@ -299,3 +299,5 @@ function setFxRate(base, quote, rate)
     end
   end
 end
+
+-- SIGNATURE: MCwCFHtsHmtb4sLczr4Ik/yDg2wALlrpAhQoDOsoqwylGOPIkD7aEBFZ56K+YA==
