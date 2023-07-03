@@ -1,9 +1,9 @@
 -- MIT License
--- Copyright (c) 2022 Robert Gering
+-- Copyright (c) 2023 Robert Gering
 -- https://github.com/gering/MoneyMoney-CapTrader-Extension
 
 WebBanking {
-  version = 1.0,
+  version = 1.1,
   country = "de",
   services = { "CapTrader", "IBKR" },
   description = string.format(MM.localizeText("Get portfolio for %s"), "CapTrader")
@@ -299,5 +299,3 @@ function setFxRate(base, quote, rate)
     end
   end
 end
-
--- SIGNATURE: MC0CFQCfFFviJ1OMLL9NSJ0rx4bKyy3BbAIUbWgR6nMhcrFiTDI6Yod+B/B9SSg=
