@@ -60,11 +60,13 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   local status = content:parseTagContent("Status")
   print("Status: " .. status)
 
-  reference = content:parseTagContent("ReferenceCode")
-  print("Reference: " .. reference)
-
   if status ~= "Success" then
+    local errorMessage = content:parseTagContent("ErrorMessage")
+    error(errorMessage)
     return LoginFailed
+  else
+    reference = content:parseTagContent("ReferenceCode")
+    print("Reference: " .. reference)
   end
 end
 
