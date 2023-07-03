@@ -1,9 +1,9 @@
 -- MIT License
--- Copyright (c) 2022 Robert Gering
+-- Copyright (c) 2023 Robert Gering
 -- https://github.com/gering/MoneyMoney-CapTrader-Extension
 
 WebBanking {
-  version = 1.0,
+  version = 1.1,
   country = "de",
   services = { "CapTrader", "IBKR" },
   description = string.format(MM.localizeText("Get portfolio for %s"), "CapTrader")
@@ -60,11 +60,13 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   local status = content:parseTagContent("Status")
   print("Status: " .. status)
 
-  reference = content:parseTagContent("ReferenceCode")
-  print("Reference: " .. reference)
-
   if status ~= "Success" then
+    local errorMessage = content:parseTagContent("ErrorMessage")
+    error(errorMessage)
     return LoginFailed
+  else
+    reference = content:parseTagContent("ReferenceCode")
+    print("Reference: " .. reference)
   end
 end
 
@@ -298,4 +300,4 @@ function setFxRate(base, quote, rate)
   end
 end
 
--- SIGNATURE: MC0CFQCfFFviJ1OMLL9NSJ0rx4bKyy3BbAIUbWgR6nMhcrFiTDI6Yod+B/B9SSg=
+-- SIGNATURE: MCwCFHtsHmtb4sLczr4Ik/yDg2wALlrpAhQoDOsoqwylGOPIkD7aEBFZ56K+YA==
