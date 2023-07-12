@@ -146,7 +146,8 @@ function parseAccountPositions(account)
         currencyOfPrice = pos.currency,
         purchasePrice = pos.costBasisMoney / pos.position,
         currencyOfPurchasePrice = pos.currency,
-        exchangeRate = getFxRateToBase(pos.currency)
+        exchangeRate = getFxRateToBase(pos.currency),
+        amount = convertToBase(pos.markPrice * quantity, pos.currency)
       }
     end
   end
