@@ -3,7 +3,7 @@
 -- https://github.com/gering/MoneyMoney-CapTrader-Extension
 
 WebBanking {
-  version = 1.1,
+  version = 1.2,
   country = "de",
   services = { "CapTrader", "IBKR" },
   description = string.format(MM.localizeText("Get portfolio for %s"), "CapTrader")
@@ -146,7 +146,8 @@ function parseAccountPositions(account)
         currencyOfPrice = pos.currency,
         purchasePrice = pos.costBasisMoney / pos.position,
         currencyOfPurchasePrice = pos.currency,
-        exchangeRate = getFxRateToBase(pos.currency)
+        exchangeRate = getFxRateToBase(pos.currency),
+        amount = convertToBase(pos.markPrice * quantity, pos.currency)
       }
     end
   end
@@ -300,4 +301,4 @@ function setFxRate(base, quote, rate)
   end
 end
 
--- SIGNATURE: MCwCFHtsHmtb4sLczr4Ik/yDg2wALlrpAhQoDOsoqwylGOPIkD7aEBFZ56K+YA==
+-- SIGNATURE: MCwCFFDMtWzc+d7dF4ZN9wqnF/e3l7tzAhQt9OhkZmwuGWXDu/P+CFsDaEHn1Q==
