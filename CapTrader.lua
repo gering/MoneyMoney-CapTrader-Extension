@@ -134,21 +134,20 @@ function parseAccountPositions(account)
     -- Update cache
     setFxRate(baseCurrencyOriginal, pos.currency, 1/pos.fxRateToBase)
 
-    if quantity > 0 then
-      mySecurities[#mySecurities+1] = {
-        name = pos.symbol,
-        isin = pos.isin,
-        market = pos.listingExchange,
-        quantity = quantity,
-        originalCurrencyAmount = pos.markPrice * quantity,
-        currencyOfOriginalAmount = pos.currency,
-        price = pos.markPrice,
-        currencyOfPrice = pos.currency,
-        purchasePrice = pos.costBasisMoney / pos.position,
-        currencyOfPurchasePrice = pos.currency,
-        exchangeRate = getFxRateToBase(pos.currency)
-      }
-    end
+    mySecurities[#mySecurities+1] = {
+      name = pos.symbol,
+      isin = pos.isin,
+      market = pos.listingExchange,
+      quantity = quantity,
+      originalCurrencyAmount = pos.markPrice * quantity,
+      currencyOfOriginalAmount = pos.currency,
+      price = pos.markPrice,
+      currencyOfPrice = pos.currency,
+      purchasePrice = pos.costBasisMoney / pos.position,
+      currencyOfPurchasePrice = pos.currency,
+      exchangeRate = getFxRateToBase(pos.currency),
+      amount = convertToBase(pos.markPrice * quantity, pos.currency)
+    }
   end
 
   return mySecurities
