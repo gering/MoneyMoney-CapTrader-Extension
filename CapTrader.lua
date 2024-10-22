@@ -3,7 +3,7 @@
 -- https://github.com/gering/MoneyMoney-CapTrader-Extension
 
 WebBanking {
-  version = 1.1,
+  version = 1.2,
   country = "de",
   services = { "CapTrader", "IBKR" },
   description = string.format(MM.localizeText("Get portfolio for %s"), "CapTrader")
@@ -134,21 +134,20 @@ function parseAccountPositions(account)
     -- Update cache
     setFxRate(baseCurrencyOriginal, pos.currency, 1/pos.fxRateToBase)
 
-    if quantity > 0 then
-      mySecurities[#mySecurities+1] = {
-        name = pos.symbol,
-        isin = pos.isin,
-        market = pos.listingExchange,
-        quantity = quantity,
-        originalCurrencyAmount = pos.markPrice * quantity,
-        currencyOfOriginalAmount = pos.currency,
-        price = pos.markPrice,
-        currencyOfPrice = pos.currency,
-        purchasePrice = pos.costBasisMoney / pos.position,
-        currencyOfPurchasePrice = pos.currency,
-        exchangeRate = getFxRateToBase(pos.currency)
-      }
-    end
+    mySecurities[#mySecurities+1] = {
+      name = pos.symbol,
+      isin = pos.isin,
+      market = pos.listingExchange,
+      quantity = quantity,
+      originalCurrencyAmount = pos.markPrice * quantity,
+      currencyOfOriginalAmount = pos.currency,
+      price = pos.markPrice,
+      currencyOfPrice = pos.currency,
+      purchasePrice = pos.costBasisMoney / pos.position,
+      currencyOfPurchasePrice = pos.currency,
+      exchangeRate = getFxRateToBase(pos.currency),
+      amount = convertToBase(pos.markPrice * quantity, pos.currency)
+    }
   end
 
   return mySecurities
@@ -300,4 +299,4 @@ function setFxRate(base, quote, rate)
   end
 end
 
--- SIGNATURE: MCwCFHtsHmtb4sLczr4Ik/yDg2wALlrpAhQoDOsoqwylGOPIkD7aEBFZ56K+YA==
+-- SIGNATURE: MCwCFEQG7Gns2hW/DGF8OWhVRTd6Wa/hAhQqSVw2/zvIc5t+DbEJvnVdXDdQpA==
