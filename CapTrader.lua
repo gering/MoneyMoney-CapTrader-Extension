@@ -168,7 +168,7 @@ function parseAccountBalances(account)
 
     if currency == "BASE_SUMMARY" then
       myBalances[#myBalances+1] = {
-        name = MM.localizeText("Settled Cash") .. " (" .. baseCurrencyOriginal .. ")",
+        name = "> " .. MM.localizeText("Settled Cash") .. " (" .. baseCurrencyOriginal .. ")",
         currency = baseCurrencyOriginal,
         quantity = cash,
         amount = convertToBase(cash, baseCurrencyOriginal),
