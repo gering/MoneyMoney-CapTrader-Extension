@@ -17,5 +17,17 @@ This Plugin uses EUR as default base currency. This means MoneyMoney will displa
 - Username: `Query-ID/Currency` e.g. 0123456/USD
 - Password: `Token` e.g. 123456789012345678
 
-**Note:** If you override the base currency, or your curreny of MoneyMoney differs from the CapTrader account, then you may want to create a custom Flex-Query, where you enable conversion rates. Ensure you add `account information`, `cash reports` and `open positions` to your custom Flex-Query.
-If you do not enable conversion rates, then this plugin fetches conversion rates when needed, but they may differ from those of your Flex-Queries.
+## Required Flex-Query sections
+
+If you create a custom Flex-Query (instead of using **Yodlee**), it must include the following sections, otherwise MoneyMoney will fail to load your portfolio:
+
+- **Account Information** (required)
+- **Open Positions** (required)
+- **Cash Report** (required)
+- **Conversion Rates** (optional — see below)
+
+You can find these settings in CapTrader → Reports → Flex Queries → your query → **Sections**.
+
+## Base currency conversion
+
+If you override the base currency, or the currency of MoneyMoney differs from the CapTrader account, then you may want to enable **Conversion Rates** in your custom Flex-Query. Without it the plugin fetches FX rates from the ECB when needed, but those may differ slightly from CapTrader's.
