@@ -1,3 +1,6 @@
+<!-- Keep this file in sync with README.de.md when making changes. -->
+[Read this in German](README.de.md)
+
 # MoneyMoney-CapTrader-Extension
 Unofficial CapTrader Extension for MoneyMoney. Fetches balances from CapTrader and returns them as securities.
 
