@@ -99,8 +99,16 @@ function getStatement()
   return cachedStatement
 end
 
+function missingSectionError(sectionLabel)
+  error(string.format(
+    MM.localizeText("FlexQuery section '%s' is missing. Please enable it in the CapTrader FlexQuery configuration."),
+    sectionLabel))
+end
+
 function parseAccountInfo()
-  local accountInfo = getStatement():parseTag("AccountInformation"):parseArgs()
+  local tag = getStatement():parseTag("AccountInformation")
+  if tag == nil then missingSectionError("Account Information") end
+  local accountInfo = tag:parseArgs()
   baseCurrencyOriginal = accountInfo.currency
 
   print("Account base currency: " .. baseCurrencyOriginal)
@@ -122,6 +130,7 @@ end
 
 function parseAccountPositions(account)
   local openPositions = getStatement():parseTagContent("OpenPositions")
+  if openPositions == nil then missingSectionError("Open Positions") end
   local mySecurities = {}
 
   -- Parse open positions
@@ -155,6 +164,7 @@ end
 
 function parseAccountBalances(account)
   local cashReports = getStatement():parseTagContent("CashReport")
+  if cashReports == nil then missingSectionError("Cash Report") end
   local myBalances = {}
   local hasForexPositions = false
 
@@ -299,4 +309,3 @@ function setFxRate(base, quote, rate)
   end
 end
 
--- SIGNATURE: MCwCFEQG7Gns2hW/DGF8OWhVRTd6Wa/hAhQqSVw2/zvIc5t+DbEJvnVdXDdQpA==
