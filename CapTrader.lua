@@ -143,19 +143,26 @@ function parseAccountPositions(account)
     -- Update cache
     setFxRate(baseCurrencyOriginal, pos.currency, 1/pos.fxRateToBase)
 
+    -- IBKR provides the already-correct position value via `positionValue`.
+    -- For bonds, options, futures, and other non-equity instruments,
+    -- `markPrice * quantity` would be wrong (e.g. bond markPrice is a
+    -- percentage of nominal, not a per-unit price). Prefer the provided
+    -- value, fall back to the computed one if it's missing from the query.
+    local value = tonumber(pos.positionValue) or (pos.markPrice * quantity)
+
     mySecurities[#mySecurities+1] = {
       name = pos.symbol,
       isin = pos.isin,
       market = pos.listingExchange,
       quantity = quantity,
-      originalCurrencyAmount = pos.markPrice * quantity,
+      originalCurrencyAmount = value,
       currencyOfOriginalAmount = pos.currency,
       price = pos.markPrice,
       currencyOfPrice = pos.currency,
       purchasePrice = pos.costBasisMoney / pos.position,
       currencyOfPurchasePrice = pos.currency,
       exchangeRate = getFxRateToBase(pos.currency),
-      amount = convertToBase(pos.markPrice * quantity, pos.currency)
+      amount = convertToBase(value, pos.currency)
     }
   end
 
