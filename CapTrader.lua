@@ -26,7 +26,12 @@ local cachedFxRates = {} -- currency pair (e.g. EUR/USD) : rate
 -- multiple CapTrader accounts on the same FlexQuery share one reference,
 -- but separate FlexQueries stay independent. A token fingerprint guards
 -- against silent reuse after the user rotates the token.
-local referenceTtl = 3600 -- 1 hour
+-- IBKR's per-(query, token) cooldown after a successful SendRequest lasts
+-- many hours (observed: still locked >2h later). Cache long enough to cover
+-- a typical workday so follow-up syncs reuse the reference instead of
+-- triggering another SendRequest. If IBKR expires the reference earlier,
+-- the 1017 handler in getStatement() invalidates the cache.
+local referenceTtl = 12 * 3600
 
 function tokenFingerprint()
   return MM.sha256(token):sub(1, 16)
