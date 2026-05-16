@@ -3,7 +3,7 @@
 -- https://github.com/gering/MoneyMoney-CapTrader-Extension
 
 WebBanking {
-  version = 1.2,
+  version = 1.3,
   country = "de",
   services = { "CapTrader", "IBKR" },
   description = string.format(MM.localizeText("Get portfolio for %s"), "CapTrader")
@@ -19,6 +19,39 @@ local baseCurrencyOverride -- default is EUR
 -- Cache
 local cachedStatement
 local cachedFxRates = {} -- currency pair (e.g. EUR/USD) : rate
+
+-- Persistent reference cache. IBKR's per-(query, token) cooldown after
+-- SendRequest can last many hours; reusing a still-valid reference avoids
+-- tripping ErrorCode 1001. The 1017 handler in getStatement() invalidates
+-- early if IBKR drops the reference before the local TTL.
+local referenceTtl = 12 * 3600 -- 12h, covers a typical workday
+
+function tokenFingerprint()
+  return MM.sha256(token):sub(1, 16)
+end
+
+function loadCachedReference()
+  local ref       = LocalStorage["ref_"          .. queryId]
+  local expiresAt = LocalStorage["refExpiresAt_" .. queryId]
+  local tokenFp   = LocalStorage["refTokenFp_"   .. queryId]
+  if ref and tokenFp == tokenFingerprint() and expiresAt and os.time() < expiresAt then
+    print("Reusing cached FlexQuery reference (expires in " .. (expiresAt - os.time()) .. "s)")
+    return ref
+  end
+  return nil
+end
+
+function storeReference(ref)
+  LocalStorage["ref_"          .. queryId] = ref
+  LocalStorage["refExpiresAt_" .. queryId] = os.time() + referenceTtl
+  LocalStorage["refTokenFp_"   .. queryId] = tokenFingerprint()
+end
+
+function invalidateReference()
+  LocalStorage["ref_"          .. queryId] = nil
+  LocalStorage["refExpiresAt_" .. queryId] = nil
+  LocalStorage["refTokenFp_"   .. queryId] = nil
+end
 
 -- Extensions
 
@@ -53,20 +86,39 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   queryId = username:match("[0-9]+")
   token = password
 
-  print("Requesting FlexQuery Reference")
-  local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q= " .. queryId .. "&v=3")
+  reference = loadCachedReference()
+  if reference then return end
 
-  -- Extract status and reference code
-  local status = content:parseTagContent("Status")
-  print("Status: " .. status)
+  local maxAttempts = 3
+  for attempt = 1, maxAttempts do
+    print("Requesting FlexQuery Reference (attempt " .. attempt .. "/" .. maxAttempts .. ")")
+    local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q=" .. queryId .. "&v=3")
 
-  if status ~= "Success" then
+    local status = content:parseTagContent("Status")
+    print("Status: " .. (status or "?"))
+
+    if status == "Success" then
+      reference = content:parseTagContent("ReferenceCode")
+      if reference == nil or reference == "" then
+        error("FlexQuery returned Success without a ReferenceCode")
+      end
+      print("Reference: " .. reference)
+      storeReference(reference)
+      return
+    end
+
+    local errorCode = content:parseTagContent("ErrorCode")
     local errorMessage = content:parseTagContent("ErrorMessage")
-    error(errorMessage)
-    return LoginFailed
-  else
-    reference = content:parseTagContent("ReferenceCode")
-    print("Reference: " .. reference)
+    print("ErrorCode: " .. (errorCode or "?") .. " - " .. (errorMessage or ""))
+
+    -- Only 1001 is transient; all other error codes are permanent.
+    if errorCode ~= "1001" or attempt == maxAttempts then
+      error(errorMessage or ("FlexQuery SendRequest failed (ErrorCode " .. (errorCode or "unknown") .. ")"))
+    end
+
+    local delay = attempt * 5
+    print("Retrying in " .. delay .. "s")
+    MM.sleep(delay)
   end
 end
 
@@ -90,13 +142,38 @@ end
 -- Parsing FlexQuery
 
 function getStatement()
-  if cachedStatement == nil then
-    print("Fetching FlexQuery Statement")
-    MM.sleep(1) -- Sometimes the statement is not available immediately
-    cachedStatement = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q= " .. reference .. "&v=3")
+  if cachedStatement ~= nil then
+    return cachedStatement
   end
 
-  return cachedStatement
+  -- 1019 = statement still generating; poll until ready.
+  local maxAttempts = 10
+  for attempt = 1, maxAttempts do
+    print("Fetching FlexQuery Statement (attempt " .. attempt .. "/" .. maxAttempts .. ")")
+    local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q=" .. reference .. "&v=3")
+
+    -- A successful statement is wrapped in <FlexQueryResponse>; errors and
+    -- progress notifications come back as <FlexStatementResponse>.
+    if type(content) == "string" and content:find("<FlexQueryResponse", 1, true) then
+      cachedStatement = content
+      return cachedStatement
+    end
+
+    local errorCode = content:parseTagContent("ErrorCode")
+    local errorMessage = content:parseTagContent("ErrorMessage")
+    print("ErrorCode: " .. (errorCode or "?") .. " - " .. (errorMessage or ""))
+
+    -- 1017 = reference invalid (IBKR TTL shorter than ours). Drop the cache.
+    if errorCode == "1017" then
+      invalidateReference()
+    end
+
+    if errorCode ~= "1019" or attempt == maxAttempts then
+      error(errorMessage or ("FlexQuery GetStatement failed (ErrorCode " .. (errorCode or "unknown") .. ")"))
+    end
+
+    MM.sleep(2)
+  end
 end
 
 function missingSectionError(sectionLabel)
