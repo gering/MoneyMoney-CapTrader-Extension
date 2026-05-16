@@ -20,18 +20,11 @@ local baseCurrencyOverride -- default is EUR
 local cachedStatement
 local cachedFxRates = {} -- currency pair (e.g. EUR/USD) : rate
 
--- Persistent reference cache. IBKR rate-limits FlexQuery generation harshly
--- (sometimes for hours), so a successfully generated reference is reused
--- across MoneyMoney syncs until it expires. Keyed by queryId so users with
--- multiple CapTrader accounts on the same FlexQuery share one reference,
--- but separate FlexQueries stay independent. A token fingerprint guards
--- against silent reuse after the user rotates the token.
--- IBKR's per-(query, token) cooldown after a successful SendRequest lasts
--- many hours (observed: still locked >2h later). Cache long enough to cover
--- a typical workday so follow-up syncs reuse the reference instead of
--- triggering another SendRequest. If IBKR expires the reference earlier,
--- the 1017 handler in getStatement() invalidates the cache.
-local referenceTtl = 12 * 3600
+-- Persistent reference cache. IBKR's per-(query, token) cooldown after
+-- SendRequest can last many hours; reusing a still-valid reference avoids
+-- tripping ErrorCode 1001. The 1017 handler in getStatement() invalidates
+-- early if IBKR drops the reference before the local TTL.
+local referenceTtl = 12 * 3600 -- 12h, covers a typical workday
 
 function tokenFingerprint()
   return MM.sha256(token):sub(1, 16)
@@ -93,24 +86,22 @@ function InitializeSession(protocol, bankCode, username, customer, password)
   queryId = username:match("[0-9]+")
   token = password
 
-  -- Reuse a previously generated reference if it's still fresh — avoids the
-  -- IBKR cooldown that triggers ErrorCode 1001 on the second sync of the day.
   reference = loadCachedReference()
   if reference then return end
 
-  -- No cached reference: generate one. A short retry handles transient 1001s,
-  -- but the longer (multi-hour) cooldowns IBKR seems to apply can't be ridden
-  -- out here — those are what the LocalStorage cache is for next time.
   local maxAttempts = 3
   for attempt = 1, maxAttempts do
     print("Requesting FlexQuery Reference (attempt " .. attempt .. "/" .. maxAttempts .. ")")
     local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=" .. token .. "&q=" .. queryId .. "&v=3")
 
     local status = content:parseTagContent("Status")
-    print("Status: " .. status)
+    print("Status: " .. (status or "?"))
 
     if status == "Success" then
       reference = content:parseTagContent("ReferenceCode")
+      if reference == nil or reference == "" then
+        error("FlexQuery returned Success without a ReferenceCode")
+      end
       print("Reference: " .. reference)
       storeReference(reference)
       return
@@ -120,11 +111,9 @@ function InitializeSession(protocol, bankCode, username, customer, password)
     local errorMessage = content:parseTagContent("ErrorMessage")
     print("ErrorCode: " .. (errorCode or "?") .. " - " .. (errorMessage or ""))
 
-    -- 1001 is the only error worth retrying briefly. Everything else (bad
-    -- token, invalid query, ...) is permanent — fail immediately.
+    -- Only 1001 is transient; all other error codes are permanent.
     if errorCode ~= "1001" or attempt == maxAttempts then
-      error(errorMessage)
-      return LoginFailed
+      error(errorMessage or ("FlexQuery SendRequest failed (ErrorCode " .. (errorCode or "unknown") .. ")"))
     end
 
     local delay = attempt * 5
@@ -157,17 +146,15 @@ function getStatement()
     return cachedStatement
   end
 
-  -- IBKR may still be generating the statement when we first ask. ErrorCode
-  -- 1019 ("Statement generation in progress") means "try again in a moment".
+  -- 1019 = statement still generating; poll until ready.
   local maxAttempts = 10
   for attempt = 1, maxAttempts do
     print("Fetching FlexQuery Statement (attempt " .. attempt .. "/" .. maxAttempts .. ")")
-    MM.sleep(2)
     local content = Connection():request("GET", "https://ndcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?t=" .. token .. "&q=" .. reference .. "&v=3")
 
     -- A successful statement is wrapped in <FlexQueryResponse>; errors and
     -- progress notifications come back as <FlexStatementResponse>.
-    if content:find("<FlexQueryResponse", 1, true) then
+    if type(content) == "string" and content:find("<FlexQueryResponse", 1, true) then
       cachedStatement = content
       return cachedStatement
     end
@@ -176,16 +163,16 @@ function getStatement()
     local errorMessage = content:parseTagContent("ErrorMessage")
     print("ErrorCode: " .. (errorCode or "?") .. " - " .. (errorMessage or ""))
 
-    -- 1017 = reference code invalid (IBKR-side TTL on the statement expired
-    -- before our local TTL did). Drop the cache so the next sync generates
-    -- a fresh reference instead of repeating the same bad call.
+    -- 1017 = reference invalid (IBKR TTL shorter than ours). Drop the cache.
     if errorCode == "1017" then
       invalidateReference()
     end
 
     if errorCode ~= "1019" or attempt == maxAttempts then
-      error(errorMessage)
+      error(errorMessage or ("FlexQuery GetStatement failed (ErrorCode " .. (errorCode or "unknown") .. ")"))
     end
+
+    MM.sleep(2)
   end
 end
 
